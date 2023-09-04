@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 
-	//"io"
 	"github.com/suffus/saxotrader"
 )
 
@@ -37,7 +36,7 @@ func main() {
 	}
 
 	for _, b := range transactions {
-		bytes, err := json.Marshal(b)
+		bytes, _ := json.Marshal(b)
 		fmt.Println(string(bytes))
 	}
 }

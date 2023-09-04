@@ -31,18 +31,18 @@ type Booking struct {
 	AssetType                       string    `json:"asset_type"`
 	UIC                             string    `json:"uic"`
 	UnderlyingInstrumentSubtype     string    `json:"underlying_instrument_subtype"`
-	InstrumentSymbol                string
-	InstrumentDescription           string
-	InstrumentSubtype               string
-	UnderlyingInstrumentAssetType   string
-	UnderlyingInstrumentDescription string
-	UnderlyingInstrumentSymbol      string
-	UnderlyingInstrumentUIC         string
-	Amount                          float64
-	AmountAccountCurrency           float64
-	AmountClientCurrency            float64
-	CostType                        string
-	CostSubtype                     string
+	InstrumentSymbol                string    `json:"instrument_symbol"`
+	InstrumentDescription           string    `json:"instrument_description"`
+	InstrumentSubtype               string    `json:"instrument_subtype"`
+	UnderlyingInstrumentAssetType   string    `json:"underlying_instrument_asset_type"`
+	UnderlyingInstrumentDescription string    `json:"underlying_instrument_description"`
+	UnderlyingInstrumentSymbol      string    `json:"underlying_instrument_symbol"`
+	UnderlyingInstrumentUIC         string    `json:"underlying_instrument_uic"`
+	Amount                          float64   `json:"amount"`
+	AmountAccountCurrency           float64   `json:"account_currency_amount"`
+	AmountClientCurrency            float64   `json:"client_currency_amount"`
+	CostType                        string    `json:"cost_type"`
+	CostSubtype                     string    `json:"cost_subtype"`
 }
 
 type FieldMismatch struct {
@@ -103,10 +103,10 @@ func Unmarshal(reader *csv.Reader, v interface{}) error {
 				return err
 			}
 			f.SetBool(bval)
-		case "Currency":
+		case "saxotrader.Currency":
 			f.SetString(record[i])
 		case "time.Time":
-			tm, err := time.Parse("22-10-2018", record[i])
+			tm, err := time.Parse("02-01-2006", record[i])
 			if err != nil {
 				return err
 			}
