@@ -4,7 +4,10 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +17,7 @@ type Currency string
 type YesNo string
 
 type Instrument struct {
+	Type        string
 	Subtype     string
 	Symbol      string
 	Description string
@@ -21,7 +25,41 @@ type Instrument struct {
 	UIC         string
 }
 
+type Derivitive struct {
+	Primary    *Instrument
+	Underlying *Instrument
+}
+
+type Asset interface {
+	Primary() *Instrument
+	Underlying() *Instrument
+}
+
 type Booking struct {
+	Date       time.Time
+	Asset      Asset
+	Amount     float64
+	AmountType string
+	Currency   Currency
+	AccountId  string
+}
+
+type Transaction struct {
+	Date       time.Time
+	AssetTo    Asset
+	AssetFrom  Asset
+	Amount     float64
+	AmountType string
+	Currency   Currency
+	AccountId  string
+}
+
+type Amount struct {
+	AmountType string
+	Amount     float64
+}
+
+type BookingDetail struct {
 	Date                            time.Time `json:"date"`
 	AccountId                       string    `json:"account_id"`
 	AccountCurrency                 Currency  `json:"account_currency"`
@@ -43,6 +81,61 @@ type Booking struct {
 	AmountClientCurrency            float64   `json:"client_currency_amount"`
 	CostType                        string    `json:"cost_type"`
 	CostSubtype                     string    `json:"cost_subtype"`
+}
+
+type HoldingHistory struct {
+	StartDateTime time.Time
+	EndDateTime   time.Time
+	Asset         Asset
+	Amount        float64
+	AmountType    string
+}
+
+type Portfolio struct {
+	Bookings    []*BookingDetail
+	Instruments map[string]*Instrument
+	Holdings    []*HoldingHistory
+}
+
+func (port *Portfolio) GetLatestPositions() {
+	for _, instr := range port.Instruments {
+		fmt.Println(instr)
+	}
+}
+
+func NewPortfolio() *Portfolio {
+	return &Portfolio{Instruments: make(map[string]*Instrument), Bookings: make([]*BookingDetail, 0)}
+}
+
+func (port *Portfolio) LoadBookings(bF *os.File) {
+	r := csv.NewReader(bF)
+	r.Read()
+	for {
+		booking := BookingDetail{}
+		err := Unmarshal(r, &booking)
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				fmt.Fprintln(os.Stderr, "Error while unmarshalling: ", err.Error())
+			}
+		} else {
+			port.Bookings = append(port.Bookings, &booking)
+		}
+	}
+	sort.Slice(port.Bookings, func(i, j int) bool {
+		return port.Bookings[i].Date.Before(port.Bookings[j].Date)
+	})
+	for _, b := range port.Bookings {
+		instr, ok := port.Instruments[b.UIC]
+		if !ok {
+			newInstr := Instrument{b.AssetType, b.InstrumentSubtype, b.InstrumentSymbol, b.InstrumentDescription, b.AssetType, b.UIC}
+			instr = &newInstr
+			port.Instruments[b.UIC] = instr
+		}
+
+	}
+
 }
 
 type FieldMismatch struct {
