@@ -142,11 +142,15 @@ type SaxoAccount struct {
 	LegalAssetTypes                       []string
 	ManagementType                        string
 	MarginCalculationMethod               string
-	MarginLendingEnabled                  bool
+	MarginLendingEnabled                  string
 	PortfolioBasedMarginEnabled           bool
 	Sharing                               []string
 	SupportsAccountValueProtectionLimit   bool
 	UseCashPositionsAsMarginCollateral    bool
+}
+
+type SaxoAccounts struct {
+	Data []SaxoAccount
 }
 
 type SaxoBalance struct {
@@ -336,6 +340,7 @@ type SaxoInstrument struct {
 }
 
 func (api *SaxoAPI) Call(call string) ([]byte, error) {
+	client := http.Client{}
 	uri := api.Endpoint + SaxoEndpoints[call].Path
 	var rdr io.Reader
 	if api.BodyObject != nil {
@@ -366,11 +371,14 @@ func (api *SaxoAPI) Call(call string) ([]byte, error) {
 		req.URL.RawQuery = q.Encode()
 	}
 
-	res := http.Request(*req)
-	if res.Response.StatusCode != 200 {
-		return nil, errors.New(fmt.Sprintf("Error: %s", res.Response.Status))
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
 	}
-	ba, err := io.ReadAll(res.Response.Body)
+	if res.StatusCode != 200 {
+		return nil, errors.New(fmt.Sprintf("Error: %s", res.Status))
+	}
+	ba, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -400,15 +408,16 @@ func (api *SaxoAPI) Client() (*SaxoClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	api.ClientKey = client.ClientKey
 	return &client, nil
 }
 
-func (api *SaxoAPI) Account() (*SaxoAccount, error) {
+func (api *SaxoAPI) Accounts() (*SaxoAccounts, error) {
 	data, err := api.Call("account")
 	if err != nil {
 		return nil, err
 	}
-	var account SaxoAccount
+	var account SaxoAccounts
 	err = json.Unmarshal(data, &account)
 	if err != nil {
 		return nil, err
@@ -416,7 +425,12 @@ func (api *SaxoAPI) Account() (*SaxoAccount, error) {
 	return &account, nil
 }
 
-func (api *SaxoAPI) Balance() (*SaxoBalance, error) {
+func (api *SaxoAPI) Balance(accountKey string) (*SaxoBalance, error) {
+	if api.ClientKey == "" {
+		return nil, errors.New("No client key set")
+	}
+	api.Params["ClientKey"] = api.ClientKey
+	api.Params["AccountKey"] = accountKey
 	data, err := api.Call("balance")
 	if err != nil {
 		return nil, err
