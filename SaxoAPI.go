@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
 	"io"
-
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 type SaxoAPI struct {
@@ -27,15 +27,25 @@ type RESTCall struct {
 }
 
 var SaxoEndpoints = map[string]RESTCall{
-	"user":        {"GET", "port/v1/users/me"},
-	"balance":     {"GET", "port/v1/balances"},
-	"client":      {"GET", "port/v1/clients/me"},
-	"account":     {"GET", "port/v1/accounts/me"},
-	"instruments": {"GET", "ref/v1/instruments"},
-	"prices":      {"GET", "trade/v1/infoprices/list"},
-	"trade":       {"POST", "trade/v2/orders"},
-	"orderlist":   {"GET", "port/v1/orders/me"},
-	"positions":   {"Get", "port/v1/positions/me"},
+	"user":               {"GET", "port/v1/users/me"},
+	"balance":            {"GET", "port/v1/balances"},
+	"client":             {"GET", "port/v1/clients/me"},
+	"account":            {"GET", "port/v1/accounts/me"},
+	"instruments":        {"GET", "ref/v1/instruments"},
+	"instrument_details": {"GET", "ref/v1/instruments/details"},
+	"prices":             {"GET", "trade/v1/infoprices/list"},
+	"trade":              {"POST", "trade/v2/orders"},
+	"orderlist":          {"GET", "port/v1/orders/me"},
+	"positions":          {"GET", "port/v1/positions/me"},
+	"netpositions":       {"GET", "port/v1/netpositions/me"},
+	"order":              {"GET", "trade/v2/orders/"},
+	"cancelorder":        {"DELETE", "trade/v2/orders/"},
+	"replaceorder":       {"PUT", "trade/v2/orders/"},
+	"quotes":             {"GET", "trade/v1/infoprices/snapshot"},
+	"chart":              {"GET", "chart/v1/charts"},
+	"chartdata":          {"GET", "chart/v1/charts/"},
+	"chartlist":          {"GET", "chart/v1/charts/me"},
+	"chartconfig":        {"GET", "chart/v1/configurations"},
 }
 
 type SaxoQuote struct {
@@ -149,9 +159,7 @@ type SaxoAccount struct {
 	UseCashPositionsAsMarginCollateral    bool
 }
 
-type SaxoAccounts struct {
-	Data []SaxoAccount
-}
+type SaxoAccounts SaxoData[SaxoAccount]
 
 type SaxoBalance struct {
 	CalculationReliability  string
@@ -210,15 +218,98 @@ type SaxoBalance struct {
 }
 
 type SaxoAsset struct {
-	AssetType    string
-	CurrencyCode string
-	ExchangeId   string
-	Description  string
-	GroupId      string
-	Idenfitier   string
-	SummaryType  string
-	Symbol       string
-	TradableAs   []string
+	AssetType      string
+	CurrencyCode   string
+	ExchangeId     string
+	Description    string
+	GroupId        int
+	Identifier     int
+	PrimaryListing int
+	SummaryType    string
+	IssuerCountry  string
+	Symbol         string
+	TradableAs     []string
+}
+
+type SaxoAssetDetails struct {
+	AffiliateInfoRequired bool
+	AssetType             string
+	AmountDecimals        int
+	CurrencyCode          string
+	DefaultAmount         float64
+	DefaultSlippage       float64
+	DefaultSlippageType   string
+	Description           string
+	Exchange              struct {
+		ExchangeId  string
+		Name        string
+		CountryCode string
+	}
+	Format struct {
+		Decimals      int
+		OrderDecimals int
+		Format        string
+	}
+	FxForwardMaxForwardDate string
+	FxForwardMinForwardDate string
+	GroupId                 int
+	IncrementSize           float64
+	IsRedemptionByAmounts   bool
+	IsTradable              bool
+	NonTradableReason       string
+	OrderDistances          struct {
+		EntryDefaultDistance          float64
+		EntryDefaultDistanceType      string
+		LimitDefaultDistance          float64
+		LimitDefaultDistanceType      string
+		StopLimitDefaultDistance      float64
+		StopLimitDefaultDistanceType  string
+		StopLossDefaultDistance       float64
+		StopLossDefaultDistanceType   string
+		StopLossDefaultOrderType      string
+		TakeProfitDefaultDistance     float64
+		TakeProfitDefaultDistanceType string
+		TakeProfitDefaultOrderType    string
+	}
+	StandardAmounts     []float64
+	SupportedOrderTypes []string
+	Symbol              string
+	TickSize            float64
+	TradableAs          []string
+	TradableOn          []string
+	TradingSignals      string
+	TradingStatus       string
+	Uic                 int
+}
+
+type SaxoInstruction struct {
+	ExchangeId                    string
+	Keywords                      string
+	AssetTypes                    []string
+	CanParticipateInMultiLegOrder bool
+	TradingStatus                 string
+	FieldGroups                   []string
+	Class                         []string
+	IncludeNonTradable            bool
+	Uics                          []int
+	Uic                           int
+	UnderlyingUic                 int
+	ExpiryDates                   string
+	OptionSpaceSegment            string
+	Tags                          []string
+	Amount                        float64
+	AmountType                    string
+	ForwardDate                   string
+	ForwardDateFarLeg             string
+	ForwardDateNearLeg            string
+	LowerBarrier                  float64
+	UpperBarrier                  float64
+	OrderBidPrice                 float64
+	OrderAskPrice                 float64
+	PutCall                       string
+	StrikePrice                   float64
+	QuoteCurrency                 string
+	ToOpenClose                   string
 }
 
 type SaxoOrderInstruction struct {
@@ -335,9 +426,57 @@ type SaxoPosition struct {
 	}
 }
 
-type SaxoInstrument struct {
-	Data []SaxoAsset
+type SaxoNetPosition struct {
+	DisplayAndFormat SaxoFormat
+	NetPositionId    string
+	NetPositionBase  struct {
+		Amount                     float64
+		AccountId                  string
+		AccountKey                 string
+		AssetType                  string
+		CanBeClosed                bool
+		ClientId                   string
+		CloseConversionRateSettled bool
+		CorrelationKey             string
+		HasForceOpenPositions      bool
+		IsMarketOpen               bool
+		NonTradableReason          string
+		NumberOfRelatedOrders      int
+		OpeningDirection           string
+		OpenIpoOrdersCount         int
+		OpenOrdersCount            int
+		OpenTriggerOrdersCount     int
+		PositionsAccount           string
+		SinglePositionStatus       string
+		Uic                        int
+		ValueDate                  string
+	}
+	NetPositionView struct {
+		AverageOpenPrice                float64
+		AverageOpenPriceIncludingCosts  float64
+		CalculationReliability          string
+		CurrentPrice                    float64
+		CurrentPriceDelayMinutes        float64
+		CurrentPriceType                string
+		Exposure                        float64
+		ExposureInBaseCurrency          float64
+		InstrumentPriceDayPercentChange float64
+		PositionCount                   int
+		PositionsNotClosedCount         int
+		ProfitLossOnTrade               float64
+		Status                          string
+		TradeCostsTotal                 float64
+		TradeCostsTotalInBaseCurrency   float64
+	}
 }
+
+type SaxoData[T any] struct {
+	Data []T
+}
+
+type SaxoAssetSet SaxoData[SaxoAsset]
+
+type SaxoAssetDetailsSet SaxoData[SaxoAssetDetails]
 
 func (api *SaxoAPI) Call(call string) ([]byte, error) {
 	client := http.Client{}
@@ -362,12 +501,20 @@ func (api *SaxoAPI) Call(call string) ([]byte, error) {
 	if api.BodyObject != nil || len(api.Body) > 0 {
 		req.Header.Add("Content-Type", "application/json")
 	}
+
 	// for GET requests we need to add the params to the URL
 	if SaxoEndpoints[call].Method == "GET" {
 		q := req.URL.Query()
 		for k, v := range api.Params {
 			q.Add(k, v)
 		}
+		if len(api.ClientKey) > 0 {
+			q.Add("ClientKey", api.ClientKey)
+		}
+		if len(api.AccountKey) > 0 {
+			q.Add("AccountKey", api.AccountKey)
+		}
+
 		req.URL.RawQuery = q.Encode()
 	}
 
@@ -425,16 +572,82 @@ func (api *SaxoAPI) Accounts() (*SaxoAccounts, error) {
 	return &account, nil
 }
 
-func (api *SaxoAPI) Balance(accountKey string) (*SaxoBalance, error) {
+func (instr *SaxoInstruction) MakeParams(cmd string) map[string]string {
+	params := make(map[string]string)
+	if len(instr.AssetTypes) > 0 {
+		params["AssetTypes"] = strings.Join(instr.AssetTypes, ",")
+	}
+	if len(instr.Class) > 0 {
+		params["Class"] = strings.Join(instr.Class, ",")
+	}
+	if len(instr.Tags) > 0 {
+		params["Tags"] = strings.Join(instr.Tags, ",")
+	}
+	if len(instr.FieldGroups) > 0 {
+		params["FieldGroups"] = strings.Join(instr.FieldGroups, ",")
+	}
+	if len(instr.ExchangeId) > 0 {
+		params["ExchangeId"] = instr.ExchangeId
+	}
+	if len(instr.Keywords) > 0 {
+		params["Keywords"] = instr.Keywords
+	}
+	if len(instr.OptionSpaceSegment) > 0 {
+		params["OptionSpaceSegment"] = instr.OptionSpaceSegment
+	}
+	if len(instr.TradingStatus) > 0 {
+		params["TradingStatus"] = instr.TradingStatus
+	}
+	if instr.UnderlyingUic > 0 {
+		params["UnderlyingUic"] = strconv.Itoa(instr.UnderlyingUic)
+	}
+	if instr.Uic > 0 {
+		params["Uics"] = strconv.Itoa(instr.Uic)
+	}
+	if len(instr.Uics) > 0 {
+		var strs []string
+		for _, i := range instr.Uics {
+			strs = append(strs, strconv.Itoa(i))
+		}
+		params["Uics"] = strings.Join(strs, ",")
+	}
+	if instr.Amount != 0 {
+		params["Amount"] = fmt.Sprintf("%f", instr.Amount)
+	}
+	if len(instr.AmountType) > 0 {
+		params["AmountType"] = instr.AmountType
+	}
+	if len(instr.ForwardDate) > 0 {
+		params["ForwardDate"] = instr.ForwardDate
+	}
+	if len(instr.ForwardDateFarLeg) > 0 {
+		params["ForwardDateFarLeg"] = instr.ForwardDateFarLeg
+	}
+	if len(instr.ForwardDateNearLeg) > 0 {
+		params["ForwardDateNearLeg"] = instr.ForwardDateNearLeg
+	}
+	if len(instr.PutCall) > 0 {
+		params["PutCall"] = instr.PutCall
+	}
+	if len(instr.QuoteCurrency) > 0 {
+		params["QuoteCurrency"] = instr.QuoteCurrency
+	}
+	if len(instr.ToOpenClose) > 0 {
+		params["ToOpenClose"] = instr.ToOpenClose
+	}
+	return params
+
+}
+
+func (api *SaxoAPI) Balance() (*SaxoBalance, error) {
 	if api.ClientKey == "" {
 		return nil, errors.New("No client key set")
 	}
-	api.Params["ClientKey"] = api.ClientKey
-	api.Params["AccountKey"] = accountKey
 	data, err := api.Call("balance")
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println(string(data))
 	var balance SaxoBalance
 	err = json.Unmarshal(data, &balance)
 	if err != nil {
@@ -443,17 +656,69 @@ func (api *SaxoAPI) Balance(accountKey string) (*SaxoBalance, error) {
 	return &balance, nil
 }
 
-func (api *SaxoAPI) Instruments() (*SaxoInstrument, error) {
+func (api *SaxoAPI) Instruments(instr SaxoInstruction) ([]SaxoAsset, error) {
+	api.Params = instr.MakeParams("instruments")
+	api.Params["$top"] = "1000"
 	data, err := api.Call("instruments")
 	if err != nil {
 		return nil, err
 	}
-	var instruments SaxoInstrument
+	var instruments SaxoAssetSet
+	//fmt.Println(string(data))
 	err = json.Unmarshal(data, &instruments)
+	if err != nil {
+		fmt.Println("UME:", err)
+		return nil, err
+	}
+	return instruments.Data, nil
+}
+
+func (api *SaxoAPI) InstrumentDetails(instr SaxoInstruction) ([]SaxoAssetDetails, error) {
+	if instr.Uic > 0 {
+		instr.Uics = append(instr.Uics, instr.Uic)
+	}
+	api.Params = instr.MakeParams("instrument_details")
+	data, err := api.Call("instrument_details")
 	if err != nil {
 		return nil, err
 	}
-	return &instruments, nil
+	var details SaxoAssetDetailsSet
+	err = json.Unmarshal(data, &details)
+	if err != nil {
+		return nil, err
+	}
+	return details.Data, nil
+}
+
+func (api *SaxoAPI) Prices(instr SaxoInstruction) (*SaxoPrice, error) {
+	api.Params = instr.MakeParams("prices")
+	data, err := api.Call("prices")
+	if err != nil {
+		return nil, err
+	}
+	var prices SaxoPrice
+	err = json.Unmarshal(data, &prices)
+	if err != nil {
+		return nil, err
+	}
+	return &prices, nil
+}
+
+func (api *SaxoAPI) NetPositions(instr SaxoInstruction) ([]SaxoNetPosition, error) {
+	if api.ClientKey == "" {
+		return nil, errors.New("No client key set")
+	}
+	api.Params["ClientKey"] = api.ClientKey
+	data, err := api.Call("netpositions")
+	if err != nil {
+		return nil, err
+	}
+	var netpositions SaxoData[SaxoNetPosition]
+	err = json.Unmarshal(data, &netpositions)
+	if err != nil {
+		return nil, err
+	}
+	return netpositions.Data, nil
 }
 
 func NewSaxoAPICall(loginToken string) *SaxoAPI {
