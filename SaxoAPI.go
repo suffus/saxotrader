@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -34,18 +35,19 @@ var SaxoEndpoints = map[string]RESTCall{
 	"instruments":        {"GET", "ref/v1/instruments"},
 	"instrument_details": {"GET", "ref/v1/instruments/details"},
 	"prices":             {"GET", "trade/v1/infoprices/list"},
-	"trade":              {"POST", "trade/v2/orders"},
-	"orderlist":          {"GET", "port/v1/orders/me"},
+	"make_order":         {"POST", "trade/v2/orders"},
+	"order_list":         {"GET", "port/v1/orders/me"},
+	"order_details":      {"GET", "port/v1/orders/{ClientKey}/{OrderId}/"},
 	"positions":          {"GET", "port/v1/positions/me"},
-	"netpositions":       {"GET", "port/v1/netpositions/me"},
+	"net_positions":      {"GET", "port/v1/netpositions/me"},
 	"order":              {"GET", "trade/v2/orders/"},
-	"cancelorder":        {"DELETE", "trade/v2/orders/"},
-	"replaceorder":       {"PUT", "trade/v2/orders/"},
+	"cancel_order":       {"DELETE", "trade/v2/orders/"},
+	"replace_order":      {"PUT", "trade/v2/orders/"},
 	"quotes":             {"GET", "trade/v1/infoprices/snapshot"},
 	"chart":              {"GET", "chart/v1/charts"},
-	"chartdata":          {"GET", "chart/v1/charts/"},
-	"chartlist":          {"GET", "chart/v1/charts/me"},
-	"chartconfig":        {"GET", "chart/v1/configurations"},
+	"chart_data":         {"GET", "chart/v1/charts/"},
+	"chart_list":         {"GET", "chart/v1/charts/me"},
+	"chart_config":       {"GET", "chart/v1/configurations"},
 }
 
 type SaxoQuote struct {
@@ -232,15 +234,14 @@ type SaxoAsset struct {
 }
 
 type SaxoAssetDetails struct {
-	AffiliateInfoRequired bool
-	AssetType             string
-	AmountDecimals        int
-	CurrencyCode          string
-	DefaultAmount         float64
-	DefaultSlippage       float64
-	DefaultSlippageType   string
-	Description           string
-	Exchange              struct {
+	AssetType           string
+	AmountDecimals      int
+	CurrencyCode        string
+	DefaultAmount       float64
+	DefaultSlippage     float64
+	DefaultSlippageType string
+	Description         string
+	Exchange            struct {
 		ExchangeId  string
 		Name        string
 		CountryCode string
@@ -319,12 +320,18 @@ type SaxoOrderInstruction struct {
 	Amount        float64
 	OrderPrice    float64
 	OrderType     string
-	OrderRelation string
 	OrderDuration struct {
 		DurationType string
 	}
 	ManualOrder bool
 	AccountKey  string
+}
+
+type SaxoOrderPost struct {
+	Orders          []SaxoOrderInstruction
+	ManualOrder     bool
+	WaitForApproval bool
+	WithAdvice      bool
 }
 
 type SaxoOrder struct {
@@ -478,6 +485,37 @@ type SaxoAssetSet SaxoData[SaxoAsset]
 
 type SaxoAssetDetailsSet SaxoData[SaxoAssetDetails]
 
+type SaxoError struct {
+	ErrorCode  string
+	Message    string
+	ModelState map[string][]string
+}
+
+func (api *SaxoAPI) MakeOrder(amount, price float64, uic int, asset, buysell, duration, orderType string) (SaxoOrderInstruction, error) {
+	if duration == "" {
+		duration = "DayOrder"
+	}
+	if orderType == "" {
+		orderType = "Limit"
+	}
+	if api.AccountKey == "" {
+		return SaxoOrderInstruction{}, errors.New("No account key set")
+	}
+	return SaxoOrderInstruction{
+		Uic:         uic,
+		BuySell:     buysell,
+		Amount:      amount,
+		AssetType:   asset,
+		OrderPrice:  price,
+		OrderType:   orderType,
+		AccountKey:  api.AccountKey,
+		ManualOrder: true,
+		OrderDuration: struct {
+			DurationType string
+		}{DurationType: duration},
+	}, nil
+}
+
 func (api *SaxoAPI) Call(call string) ([]byte, error) {
 	client := http.Client{}
 	uri := api.Endpoint + SaxoEndpoints[call].Path
@@ -488,6 +526,7 @@ func (api *SaxoAPI) Call(call string) ([]byte, error) {
 			return nil, err
 		}
 		api.Body = ba
+		fmt.Println("Body is ", string(ba))
 		rdr = bytes.NewReader(ba)
 	} else {
 		rdr = bytes.NewReader(api.Body)
@@ -502,8 +541,8 @@ func (api *SaxoAPI) Call(call string) ([]byte, error) {
 		req.Header.Add("Content-Type", "application/json")
 	}
 
-	// for GET requests we need to add the params to the URL
-	if SaxoEndpoints[call].Method == "GET" {
+	// for GET and DELETE requests we need to add the params to the URL
+	if SaxoEndpoints[call].Method == "GET" || SaxoEndpoints[call].Method == "DELETE" {
 		q := req.URL.Query()
 		for k, v := range api.Params {
 			q.Add(k, v)
@@ -515,6 +554,11 @@ func (api *SaxoAPI) Call(call string) ([]byte, error) {
 			q.Add("AccountKey", api.AccountKey)
 		}
 
+		paramrx := regexp.MustCompile(`\{([a-zA-Z0-9]+)\}`)
+		for _, p := range paramrx.FindAllString(uri, -1) {
+			uri = strings.Replace(uri, p, api.Params[strings.Trim(p, "{}")], 1)
+		}
+
 		req.URL.RawQuery = q.Encode()
 	}
 
@@ -522,12 +566,11 @@ func (api *SaxoAPI) Call(call string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if res.StatusCode != 200 {
-		return nil, errors.New(fmt.Sprintf("Error: %s", res.Status))
-	}
+
 	ba, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
+	if res.StatusCode != 200 {
+		//fmt.Println("Error, result body is ", string(ba))
+		return nil, errors.New(fmt.Sprintf("Error: %s %s", res.Status, string(ba)))
 	}
 	return ba, nil
 }
@@ -709,7 +752,7 @@ func (api *SaxoAPI) NetPositions(instr SaxoInstruction) ([]SaxoNetPosition, erro
 		return nil, errors.New("No client key set")
 	}
 	api.Params["ClientKey"] = api.ClientKey
-	data, err := api.Call("netpositions")
+	data, err := api.Call("net_positions")
 	if err != nil {
 		return nil, err
 	}
@@ -719,6 +762,41 @@ func (api *SaxoAPI) NetPositions(instr SaxoInstruction) ([]SaxoNetPosition, erro
 		return nil, err
 	}
 	return netpositions.Data, nil
+}
+
+func (api *SaxoAPI) PlaceOrder(instr SaxoOrderInstruction) ([]SaxoOrder, error) {
+	if api.ClientKey == "" {
+		return nil, errors.New("No client key set")
+	}
+	api.BodyObject = instr
+	data, err := api.Call("make_order")
+	if err != nil {
+		fmt.Println(data)
+		return nil, err
+	}
+	var orders SaxoData[SaxoOrder]
+	err = json.Unmarshal(data, &orders)
+	if err != nil {
+		return nil, err
+	}
+	return orders.Data, nil
+}
+
+func (api *SaxoAPI) OrderList() ([]SaxoOrder, error) {
+	if api.ClientKey == "" {
+		return nil, errors.New("No client key set")
+	}
+	api.Params["ClientKey"] = api.ClientKey
+	data, err := api.Call("order_list")
+	if err != nil {
+		return nil, err
+	}
+	var orders SaxoData[SaxoOrder]
+	err = json.Unmarshal(data, &orders)
+	if err != nil {
+		return nil, err
+	}
+	return orders.Data, nil
 }
 
 func NewSaxoAPICall(loginToken string) *SaxoAPI {

@@ -12,6 +12,9 @@ func main() {
 	symbol := flag.String("symbol", "", "Symbol for SaxoTrader API")
 	exchange := flag.String("exchange", "", "Exchange for SaxoTrader API")
 	assetType := flag.String("assetType", "", "Asset Type for SaxoTrader API")
+	amount := flag.Float64("amount", 0, "Amount for SaxoTrader API")
+	price := flag.Float64("price", 0, "Price for SaxoTrader API")
+
 	flag.Parse()
 	if *token == "" {
 		fmt.Println("Please provide a token")
@@ -43,6 +46,7 @@ func main() {
 			defaultAccount = acct
 		}
 	}
+	port.AccountKey = defaultAccount.AccountKey
 	fmt.Println(defaultAccount.AccountName, defaultAccount.AccountKey, defaultAccount.AccountType, defaultAccount.AccountId)
 	//get balance
 	b, err := port.Balance()
@@ -83,4 +87,29 @@ func main() {
 		}
 	}
 	fmt.Println(len(instr))
+	if *amount != 0 {
+		fmt.Println("placing order")
+		orderInstruction, err := port.MakeOrder(*amount, *price, instr[0].Identifier, *assetType, "Buy", "DayOrder", "Limit")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		order, err := port.PlaceOrder(orderInstruction)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println(order)
+	}
+
+	orders, err := port.OrderList()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("there are ", len(orders), " orders")
+	for i := range orders {
+		fmt.Println("ORDER: ", orders[i].OrderId, orders[i].BuySell, orders[i].Status, orders[i].Amount, orders[i].Duration.DurationType, orders[i].Price, orders[i].Amount, orders[i].Exchange.ExchangeId, orders[i].Uic)
+	}
+
 }
