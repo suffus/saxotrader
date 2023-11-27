@@ -2,6 +2,7 @@ package saxotrader
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,14 @@ type SaxoAPI struct {
 type RESTCall struct {
 	Method string
 	Path   string
+}
+
+type SaxoToken struct {
+	access_token             string
+	expires_in               int
+	refresh_token            string
+	token_type               string
+	refresh_token_expires_in int
 }
 
 var SaxoEndpoints = map[string]RESTCall{
@@ -514,6 +523,39 @@ func (api *SaxoAPI) MakeOrder(amount, price float64, uic int, asset, buysell, du
 			DurationType string
 		}{DurationType: duration},
 	}, nil
+}
+
+func GetToken(endpoint, client_id, client_secret, code, redirect_uri string) (SaxoToken, error) {
+	client := http.Client{}
+	uri := endpoint + "token"
+	var rdr io.Reader
+
+	basic_auth := fmt.Sprintf("%s:%s", client_id, client_secret)
+	basic_auth = base64.StdEncoding.EncodeToString([]byte(basic_auth))
+
+	rdr = bytes.NewReader([]byte(fmt.Sprintf("grant_type=authorization_code&code=%s&redirect_uri=%s", code, redirect_uri)))
+	req, err := http.NewRequest("POST", uri, rdr)
+	if err != nil {
+		return SaxoToken{}, err
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", basic_auth))
+
+	res, err := client.Do(req)
+	if err != nil {
+		return SaxoToken{}, err
+	}
+	ba, err := io.ReadAll(res.Body)
+	if res.StatusCode != 200 {
+		fmt.Println("Error, result body is ", string(ba))
+		return SaxoToken{}, errors.New(fmt.Sprintf("Error: %s %s", res.Status, string(ba)))
+	}
+	var token SaxoToken
+	err = json.Unmarshal(ba, &token)
+	if err != nil {
+		return SaxoToken{}, err
+	}
+	return token, nil
 }
 
 func (api *SaxoAPI) Call(call string) ([]byte, error) {
